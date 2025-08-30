@@ -18,21 +18,22 @@ Permite mantener actualizados campos como:
   ```bash
   pip install requests
 
-## Recomendado utilizar con virtual env
+- Recomendado utilizar con virtual env
+  ```bash
+  python3 -m venv path/to/venv
+  cd path/to/venv
+  source bin/activate
+  python3 -m pip install requests
+  
+---
 
-python3 -m venv path/to/venv
-cd path/to/venv
-source bin/activate  
-python3 -m pip install requests  
-
-
-▶️ Uso
+## ▶️ Uso
 
 Ejecutar el script principal:
+  
+  python3 sync_moodle_discourse.py
 
-python3 sync_moodle_discourse.py
-
-Modos
+## Modos
 
 Dry-run (por defecto):
 Muestra las diferencias encontradas sin aplicar cambios.
@@ -56,6 +57,7 @@ En modo aplicado:
 
 python3 sync_moodle_discourse.py --user jdoe --apply
 
+---
 📌 Notas importantes
 
 La actualización de email en Discourse envía un correo de confirmación al nuevo email.
@@ -66,5 +68,5 @@ Si un usuario de Moodle no existe en Discourse, se ignora (no crea usuarios nuev
 Puede ejecutarse manualmente o integrarse en un cron job para sincronización periódica.
 
 Ejemplo de cron (ejecuta cada noche a las 02:00 en modo aplicado):
-
+```bash
 0 2 * * * /usr/bin/python3 /ruta/al/proyecto/sync_moodle_discourse.py --apply >> /var/log/sync_moodle_discourse.log 2>&1

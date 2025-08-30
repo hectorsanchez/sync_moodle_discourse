@@ -54,14 +54,8 @@ def update_discourse_email(username, new_email, dry_run=True):
         print(f"❌ Error actualizando email {username}: {r.status_code} - {r.text}")
 
 
-def update_discourse_user(username, updates, dry_run=True):
-    url = f"{settings.DISCOURSE_URL}/u/{username}.json"
-    headers = {
-        "Api-Key": settings.DISCOURSE_API_KEY,
-        "Api-Username": settings.DISCOURSE_API_USER,
-        "Content-Type": "application/json"
-    }
-
+def update_discourse_user_profile(username, updates, dry_run=True):
+    """Actualiza el perfil del usuario en Discourse usando el endpoint correcto"""
     if dry_run:
         discourse_user = get_discourse_user(username)
         if not discourse_user:
@@ -75,11 +69,68 @@ def update_discourse_user(username, updates, dry_run=True):
                 print(f"   - {key}: '{old_value}' → '{new_value}'")
         return
 
-    r = requests.put(url, headers=headers, json={"user": updates})
+    # Para actualizar el perfil, usamos la estructura correcta descubierta
+    # Los campos deben enviarse directamente, no envueltos en {'user': ...}
+    url = f"{settings.DISCOURSE_URL}/u/{username}.json"
+    headers = {
+        "Api-Key": settings.DISCOURSE_API_KEY,
+        "Api-Username": settings.DISCOURSE_API_USER,
+        "Content-Type": "application/json"
+    }
+    
+    # Enviar cada campo por separado para asegurar que se aplique
+    for key, value in updates.items():
+        data = {key: value}
+        print(f"Actualizando {key} para {username}...")
+        
+        r = requests.put(url, headers=headers, json=data)
+        if r.status_code == 200:
+            print(f"✅ {key} actualizado para {username}")
+        else:
+            print(f"❌ Error actualizando {key} de {username}: {r.status_code} - {r.text}")
+
+    # Verificar que los cambios se aplicaron
+    verify_changes(username, updates)
+
+
+def update_discourse_user_bio(username, bio_raw, dry_run=True):
+    """Actualiza la biografía del usuario en Discourse"""
+    url = f"{settings.DISCOURSE_URL}/u/{username}/preferences/about"
+    headers = {
+        "Api-Key": settings.DISCOURSE_API_KEY,
+        "Api-Username": settings.DISCOURSE_API_USER,
+        "Content-Type": "application/json"
+    }
+
+    if dry_run:
+        discourse_user = get_discourse_user(username)
+        old_bio = discourse_user.get("bio_raw", "")
+        if old_bio != bio_raw:
+            print(f"   - bio_raw: '{old_bio}' → '{bio_raw}'")
+        return
+
+    r = requests.put(url, headers=headers, json={"bio_raw": bio_raw})
     if r.status_code == 200:
-        print(f"✅ Actualizado {username} ({updates})")
+        print(f"✅ Biografía actualizada para {username}")
     else:
-        print(f"❌ Error con {username}: {r.status_code} - {r.text}")
+        print(f"❌ Error actualizando biografía de {username}: {r.status_code} - {r.text}")
+
+
+def verify_changes(username, expected_updates):
+    """Verifica que los cambios se hayan aplicado correctamente"""
+    print(f"🔍 Verificando cambios para {username}...")
+    discourse_user = get_discourse_user(username)
+    
+    if not discourse_user:
+        print(f"⚠️ No se pudo verificar {username} - usuario no encontrado")
+        return
+    
+    for key, expected_value in expected_updates.items():
+        actual_value = discourse_user.get(key)
+        if actual_value == expected_value:
+            print(f"   ✅ {key}: '{actual_value}' (correcto)")
+        else:
+            print(f"   ❌ {key}: esperado '{expected_value}', actual '{actual_value}'")
 
 
 def main(dry_run=True, filter_username=None):
@@ -105,17 +156,21 @@ def main(dry_run=True, filter_username=None):
         elif city:
             location = city
 
-        updates = {}
+        # Actualizar perfil básico
+        profile_updates = {}
         if fullname:
-            updates["name"] = fullname
+            profile_updates["name"] = fullname
         if location:
-            updates["location"] = location
+            profile_updates["location"] = location
+
+        if profile_updates:
+            update_discourse_user_profile(username, profile_updates, dry_run=dry_run)
+
+        # Actualizar biografía por separado
         if description:
-            updates["bio_raw"] = description
+            update_discourse_user_bio(username, description, dry_run=dry_run)
 
-        if updates:
-            update_discourse_user(username, updates, dry_run=dry_run)
-
+        # Actualizar email por separado
         discourse_user = get_discourse_user(username)
         discourse_email = discourse_user.get("email")
         if email and discourse_email != email:

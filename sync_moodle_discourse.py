@@ -1,6 +1,48 @@
 import requests
 import argparse
 import settings  # importamos la config desde settings.py
+import os
+
+
+def load_excluded_users():
+    """Carga la lista de usuarios excluidos desde el archivo excluded_users.txt"""
+    excluded_users = set()
+    excluded_file = "excluded_users.txt"
+    
+    if not os.path.exists(excluded_file):
+        print(f"⚠️ Archivo {excluded_file} no encontrado, creando uno por defecto...")
+        # Crear archivo por defecto
+        with open(excluded_file, 'w', encoding='utf-8') as f:
+            f.write("# Lista de usuarios excluidos de la sincronización\n")
+            f.write("# Un usuario por línea, comentarios con #\n")
+            f.write("# Los usuarios listados aquí NO se crearán ni actualizarán en Discourse\n\n")
+            f.write("# Usuarios del sistema\n")
+            f.write("guest\n")
+            f.write("admin\n")
+            f.write("root\n\n")
+            f.write("# Usuarios de prueba (ejemplos)\n")
+            f.write("# testuser\n")
+            f.write("# demo\n")
+            f.write("# example\n\n")
+            f.write("# Agregar más usuarios según sea necesario\n")
+        print(f"✅ Archivo {excluded_file} creado con configuración por defecto")
+    
+    try:
+        with open(excluded_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Ignorar líneas vacías y comentarios
+                if line and not line.startswith('#'):
+                    excluded_users.add(line.lower())  # Convertir a minúsculas para comparación
+    except Exception as e:
+        print(f"⚠️ Error leyendo {excluded_file}: {e}")
+    
+    return excluded_users
+
+
+def is_user_excluded(username, excluded_users):
+    """Verifica si un usuario está en la lista de excluidos"""
+    return username.lower() in excluded_users
 
 
 def get_moodle_users(filter_username=None):
@@ -168,11 +210,130 @@ def verify_changes(username, expected_updates):
             print(f"   ❌ {key}: esperado '{expected_value}', actual '{actual_value}'")
 
 
+def get_all_discourse_users():
+    """Obtiene todos los usuarios de Discourse para comparación"""
+    url = f"{settings.DISCOURSE_URL}/admin/users/list/active.json"
+    headers = {
+        "Api-Key": settings.DISCOURSE_API_KEY,
+        "Api-Username": settings.DISCOURSE_API_USER
+    }
+    
+    try:
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            return r.json()
+        else:
+            print(f"⚠️ Error obteniendo usuarios de Discourse: {r.status_code}")
+            return []
+    except Exception as e:
+        print(f"❌ Error obteniendo usuarios de Discourse: {e}")
+        return []
+
+
+def user_exists_in_discourse(username, discourse_users=None):
+    """Verifica si un usuario existe en Discourse"""
+    if discourse_users is None:
+        discourse_users = get_all_discourse_users()
+    
+    return any(user.get("username") == username for user in discourse_users)
+
+
+def get_moodle_groups_for_user(username):
+    """Obtiene los grupos de Moodle para un usuario específico"""
+    params = {
+        "wstoken": settings.MOODLE_TOKEN,
+        "wsfunction": "core_group_get_course_user_groups",
+        "moodlewsrestformat": "json",
+        "userid": username  # Necesitamos el ID del usuario
+    }
+    
+    try:
+        r = requests.get(settings.MOODLE_ENDPOINT, params=params)
+        if r.status_code == 200:
+            groups = r.json().get("groups", [])
+            return [group.get("name") for group in groups]
+        else:
+            print(f"⚠️ Error obteniendo grupos de Moodle para {username}: {r.status_code}")
+            return []
+    except Exception as e:
+        print(f"❌ Error obteniendo grupos de Moodle para {username}: {e}")
+        return []
+
+
+def create_discourse_user(username, moodle_data, dry_run=True):
+    """Crea un nuevo usuario en Discourse"""
+    if dry_run:
+        print(f"   - [Dry-run] CREARÍA nuevo usuario: {username}")
+        print(f"     Datos: {moodle_data.get('fullname')} - {moodle_data.get('email')}")
+        return True
+    
+    url = f"{settings.DISCOURSE_URL}/users.json"
+    headers = {
+        "Api-Key": settings.DISCOURSE_API_KEY,
+        "Api-Username": settings.DISCOURSE_API_USER,
+        "Content-Type": "application/json"
+    }
+
+    # Construir datos del usuario
+    user_data = {
+        "name": moodle_data.get("fullname", username),
+        "username": username,
+        "email": moodle_data.get("email", f"{username}@example.com"),
+        "password": f"TempPass{username}123!"  # Password temporal para SSO
+    }
+    
+    try:
+        print(f"🆕 Creando usuario: {username}")
+        r = requests.post(url, headers=headers, json=user_data)
+        
+        if r.status_code == 200:
+            response = r.json()
+            if response.get("success"):
+                print(f"✅ Usuario {username} creado exitosamente")
+                print(f"   Nota: Usuario creado inactivo, requiere activación por email")
+                return True
+            else:
+                print(f"❌ Error creando usuario {username}: {response.get('message', 'Error desconocido')}")
+                return False
+        else:
+            print(f"❌ Error creando usuario {username}: {r.status_code} - {r.text}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Excepción creando usuario {username}: {e}")
+        return False
+
+
+def sync_user_groups(username, moodle_groups, dry_run=True):
+    """Sincroniza grupos del usuario basado en grupos de Moodle"""
+    if not moodle_groups:
+        return
+
+    if dry_run:
+        print(f"   - [Dry-run] Sincronizaría grupos: {', '.join(moodle_groups)}")
+        return
+
+    # Nota: La sincronización de grupos requiere endpoints adicionales
+    # Por ahora solo mostramos qué grupos se sincronizarían
+    print(f"📋 Grupos de Moodle para {username}: {', '.join(moodle_groups)}")
+    print(f"   Nota: Sincronización de grupos requiere implementación adicional")
+
+
 def main(dry_run=True, filter_username=None):
+    # Cargar lista de usuarios excluidos
+    excluded_users = load_excluded_users()
+    if excluded_users:
+        print(f"🚫 Usuarios excluidos: {', '.join(sorted(excluded_users))}")
+    
     moodle_users = get_moodle_users(filter_username)
     if not moodle_users:
         print(f"⚠️ No se encontró el usuario {filter_username} en Moodle")
         return
+
+    # Obtener usuarios de Discourse para comparación
+    discourse_users = get_all_discourse_users()
+    print(f"📊 Usuarios en Moodle: {len(moodle_users)}")
+    print(f"📊 Usuarios en Discourse: {len(discourse_users)}")
 
     for mu in moodle_users:
         username = mu.get("username")
@@ -182,6 +343,35 @@ def main(dry_run=True, filter_username=None):
         description = mu.get("description")
         email = mu.get("email")
 
+        print(f"\n👤 Procesando usuario: {username}")
+
+        # Verificar si el usuario está en la lista de excluidos
+        if is_user_excluded(username, excluded_users):
+            print(f"🚫 Usuario {username} está en la lista de excluidos, saltando...")
+            continue
+
+        # Verificar si el usuario existe en Discourse
+        if not user_exists_in_discourse(username, discourse_users):
+            print(f"🆕 Usuario {username} no existe en Discourse")
+            
+            # Crear nuevo usuario
+            if create_discourse_user(username, mu, dry_run=dry_run):
+                # Obtener grupos de Moodle para este usuario
+                moodle_groups = get_moodle_groups_for_user(username)
+                sync_user_groups(username, moodle_groups, dry_run=dry_run)
+                
+                # Continuar con la sincronización de campos
+                print(f"🔄 Continuando con sincronización de campos para {username}")
+            else:
+                print(f"⚠️ Saltando sincronización de campos para {username} debido a error en creación")
+                continue
+
+        # Obtener datos actuales del usuario en Discourse para comparar
+        discourse_user = get_discourse_user(username)
+        if not discourse_user:
+            print(f"⚠️ Usuario {username} no encontrado en Discourse, saltando...")
+            continue
+
         # Construcción del location
         location = None
         if city and country:
@@ -190,12 +380,6 @@ def main(dry_run=True, filter_username=None):
             location = country
         elif city:
             location = city
-
-        # Obtener datos actuales del usuario en Discourse para comparar
-        discourse_user = get_discourse_user(username)
-        if not discourse_user:
-            print(f"⚠️ Usuario {username} no encontrado en Discourse, saltando...")
-            continue
 
         # Solo actualizar campos que estén vacíos en Discourse
         profile_updates = {}

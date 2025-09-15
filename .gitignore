@@ -1,2 +1,14 @@
 # Created by venv; see https://docs.python.org/3/library/venv.html
 *
+
+# Archivos de configuración sensibles
+settings_dev.py
+settings_prod.py
+settings.py
+
+# Archivos de datos exportados
+*.json
+*.csv
+
+# Archivos de usuarios excluidos
+excluded_users.txt

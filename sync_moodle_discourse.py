@@ -2,6 +2,7 @@ import requests
 import argparse
 import settings  # importamos la config desde settings.py
 import os
+from country_codes import get_country_name
 
 
 def load_excluded_users():
@@ -344,6 +345,14 @@ def main(dry_run=True, filter_username=None):
         email = mu.get("email")
 
         print(f"\n👤 Procesando usuario: {username}")
+        
+        # Mostrar información de conversión de país si aplica
+        if country:
+            country_name = get_country_name(country)
+            if country_name != country:
+                print(f"   🌍 País: {country} → {country_name}")
+            else:
+                print(f"   🌍 País: {country} (código no reconocido)")
 
         # Verificar si el usuario está en la lista de excluidos
         if is_user_excluded(username, excluded_users):
@@ -372,12 +381,14 @@ def main(dry_run=True, filter_username=None):
             print(f"⚠️ Usuario {username} no encontrado en Discourse, saltando...")
             continue
 
-        # Construcción del location
+        # Construcción del location con conversión de código de país
         location = None
-        if city and country:
-            location = f"{city}, {country}"
-        elif country:
-            location = country
+        country_name = get_country_name(country) if country else None
+        
+        if city and country_name:
+            location = f"{city}, {country_name}"
+        elif country_name:
+            location = country_name
         elif city:
             location = city
 

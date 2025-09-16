@@ -4,9 +4,49 @@ import settings  # importamos la config desde settings.py
 import os
 import time
 import re
+import csv
+from datetime import datetime
 from country_codes import get_country_name
 from tqdm import tqdm
 
+
+def create_log_filename():
+    """Crea un nombre de archivo único para el log basado en fecha y hora"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"sync_log_{timestamp}.csv"
+
+def write_log_header(filename):
+    """Escribe el encabezado del archivo CSV de log"""
+    with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+        fieldnames = [
+            'timestamp', 'original_username', 'normalized_username', 'fullname', 'email',
+            'action', 'status', 'message', 'location', 'country', 'description'
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+
+def log_user_action(filename, original_username, normalized_username, fullname, email, 
+                   action, status, message, location=None, country=None, description=None):
+    """Registra una acción de usuario en el archivo CSV de log"""
+    with open(filename, 'a', newline='', encoding='utf-8') as csvfile:
+        fieldnames = [
+            'timestamp', 'original_username', 'normalized_username', 'fullname', 'email',
+            'action', 'status', 'message', 'location', 'country', 'description'
+        ]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow({
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'original_username': original_username,
+            'normalized_username': normalized_username,
+            'fullname': fullname,
+            'email': email,
+            'action': action,
+            'status': status,
+            'message': message,
+            'location': location,
+            'country': country,
+            'description': description
+        })
 
 def normalize_username(username):
     """
@@ -93,7 +133,7 @@ def is_user_excluded(username, excluded_users):
     return username.lower() in excluded_users
 
 
-def get_moodle_users(filter_username=None, limit=None):
+def get_moodle_users(filter_username=None, limit=None, offset=0):
     """Obtiene usuarios desde Moodle. Si filter_username está definido, solo devuelve ese."""
     params = {
         "wstoken": settings.MOODLE_TOKEN,
@@ -109,7 +149,10 @@ def get_moodle_users(filter_username=None, limit=None):
     if filter_username:
         return [u for u in users if u.get("username") == filter_username]
     
-    # Aplicar límite si se especifica
+    # Aplicar offset y límite si se especifican
+    if offset > 0:
+        users = users[offset:]
+    
     if limit and limit > 0:
         users = users[:limit]
     
@@ -373,7 +416,7 @@ def get_moodle_groups_for_user(username):
         return []
 
 
-def create_discourse_user(username, moodle_data, dry_run=True):
+def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None):
     """Crea un nuevo usuario en Discourse"""
     # Normalizar el nombre de usuario para cumplir con los requisitos de Discourse
     original_username = username
@@ -387,6 +430,15 @@ def create_discourse_user(username, moodle_data, dry_run=True):
         print(f"     Datos: {moodle_data.get('fullname')} - {moodle_data.get('email')}")
         if original_username != normalized_username:
             print(f"     Username original: {original_username}")
+        
+        # Log para dry-run
+        if log_filename:
+            log_user_action(
+                log_filename, original_username, normalized_username,
+                moodle_data.get('fullname'), moodle_data.get('email'),
+                'CREATE', 'DRY_RUN', 'Usuario creado en modo dry-run',
+                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+            )
         return True
     
     url = f"{settings.DISCOURSE_URL}/users.json"
@@ -415,16 +467,54 @@ def create_discourse_user(username, moodle_data, dry_run=True):
                 if original_username != normalized_username:
                     print(f"   Username original: {original_username}")
                 print(f"   Nota: Usuario creado inactivo, requiere activación por email")
+                
+                # Log de éxito
+                if log_filename:
+                    log_user_action(
+                        log_filename, original_username, normalized_username,
+                        moodle_data.get('fullname'), moodle_data.get('email'),
+                        'CREATE', 'SUCCESS', 'Usuario creado exitosamente',
+                        moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                    )
                 return True
             else:
-                print(f"❌ Error creando usuario {normalized_username}: {response.get('message', 'Error desconocido')}")
+                error_msg = response.get('message', 'Error desconocido')
+                print(f"❌ Error creando usuario {normalized_username}: {error_msg}")
+                
+                # Log de error
+                if log_filename:
+                    log_user_action(
+                        log_filename, original_username, normalized_username,
+                        moodle_data.get('fullname'), moodle_data.get('email'),
+                        'CREATE', 'ERROR', f'Error: {error_msg}',
+                        moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                    )
                 return False
         else:
-            print(f"❌ Error creando usuario {normalized_username}: {r.status_code} - {r.text}")
+            error_msg = f"{r.status_code} - {r.text}"
+            print(f"❌ Error creando usuario {normalized_username}: {error_msg}")
+            
+            # Log de error
+            if log_filename:
+                log_user_action(
+                    log_filename, original_username, normalized_username,
+                    moodle_data.get('fullname'), moodle_data.get('email'),
+                    'CREATE', 'ERROR', f'Error HTTP: {error_msg}',
+                    moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                )
             return False
             
     except Exception as e:
         print(f"❌ Excepción creando usuario {normalized_username}: {e}")
+        
+        # Log de excepción
+        if log_filename:
+            log_user_action(
+                log_filename, original_username, normalized_username,
+                moodle_data.get('fullname'), moodle_data.get('email'),
+                'CREATE', 'EXCEPTION', f'Excepción: {str(e)}',
+                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+            )
         return False
 
 
@@ -443,15 +533,20 @@ def sync_user_groups(username, moodle_groups, dry_run=True):
     print(f"   Nota: Sincronización de grupos requiere implementación adicional")
 
 
-def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=None):
+def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=None, offset=0):
+    # Crear archivo de log
+    log_filename = create_log_filename()
+    write_log_header(log_filename)
+    print(f"📝 Log de ejecución: {log_filename}")
+    
     # Cargar lista de usuarios excluidos
     excluded_users = load_excluded_users()
     if excluded_users:
         print(f"🚫 Usuarios excluidos: {', '.join(sorted(excluded_users))}")
     
-    # Usar batch_size si no se especifica un usuario específico
+    # Usar batch_size y offset si no se especifica un usuario específico
     limit = batch_size if not filter_username else None
-    moodle_users = get_moodle_users(filter_username, limit=limit)
+    moodle_users = get_moodle_users(filter_username, limit=limit, offset=offset)
     
     if not moodle_users:
         if filter_username:
@@ -467,7 +562,7 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
     
     # Mostrar información del lote
     if batch_size and not filter_username:
-        print(f"📦 Procesando lote de {len(moodle_users)} usuarios (límite: {batch_size})")
+        print(f"📦 Procesando lote de {len(moodle_users)} usuarios (límite: {batch_size}, offset: {offset})")
     elif filter_username:
         print(f"👤 Procesando usuario específico: {filter_username}")
     else:
@@ -511,6 +606,12 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
         # Verificar si el usuario está en la lista de excluidos (usar username original)
         if is_user_excluded(original_username, excluded_users):
             stats['excluidos'] += 1
+            # Log de usuario excluido
+            log_user_action(
+                log_filename, original_username, normalized_username,
+                fullname, email, 'EXCLUDE', 'EXCLUDED', 'Usuario en lista de excluidos',
+                city, country, description
+            )
             progress_bar.update(1)
             continue
 
@@ -527,7 +628,7 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
                 if original_username != normalized_username:
                     print(f"   Username original: {original_username}")
             
-            if create_discourse_user(original_username, mu, dry_run=dry_run):
+            if create_discourse_user(original_username, mu, dry_run=dry_run, log_filename=log_filename):
                 stats['creados'] += 1
                 # Obtener grupos de Moodle para este usuario (usar username original)
                 moodle_groups = get_moodle_groups_for_user(original_username)
@@ -540,6 +641,13 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
             # Usuario existe, procesar actualizaciones
             print(f"🔄 Usuario {normalized_username} existe en Discourse, actualizando...")
             stats['actualizados'] += 1
+            
+            # Log de usuario existente
+            log_user_action(
+                log_filename, original_username, normalized_username,
+                fullname, email, 'UPDATE', 'EXISTS', 'Usuario existe en Discourse, procesando actualizaciones',
+                city, country, description
+            )
 
         # Construcción del location con conversión de código de país
         location = None
@@ -633,7 +741,14 @@ if __name__ == "__main__":
         default=settings.BATCH_SIZE,
         help=f"Número de usuarios a procesar en esta ejecución (por defecto: {settings.BATCH_SIZE})"
     )
+    parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Número de usuarios a saltar desde el inicio (para procesamiento secuencial, por defecto: 0)"
+    )
     args = parser.parse_args()
 
-    main(dry_run=not args.apply, filter_username=args.user, force_recreate=args.force_recreate, batch_size=args.batch_size)
+    main(dry_run=not args.apply, filter_username=args.user, force_recreate=args.force_recreate, 
+         batch_size=args.batch_size, offset=args.offset)
 

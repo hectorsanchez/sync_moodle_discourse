@@ -93,7 +93,7 @@ def is_user_excluded(username, excluded_users):
     return username.lower() in excluded_users
 
 
-def get_moodle_users(filter_username=None):
+def get_moodle_users(filter_username=None, limit=None):
     """Obtiene usuarios desde Moodle. Si filter_username está definido, solo devuelve ese."""
     params = {
         "wstoken": settings.MOODLE_TOKEN,
@@ -108,6 +108,11 @@ def get_moodle_users(filter_username=None):
 
     if filter_username:
         return [u for u in users if u.get("username") == filter_username]
+    
+    # Aplicar límite si se especifica
+    if limit and limit > 0:
+        users = users[:limit]
+    
     return users
 
 
@@ -438,21 +443,35 @@ def sync_user_groups(username, moodle_groups, dry_run=True):
     print(f"   Nota: Sincronización de grupos requiere implementación adicional")
 
 
-def main(dry_run=True, filter_username=None, force_recreate=False):
+def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=None):
     # Cargar lista de usuarios excluidos
     excluded_users = load_excluded_users()
     if excluded_users:
         print(f"🚫 Usuarios excluidos: {', '.join(sorted(excluded_users))}")
     
-    moodle_users = get_moodle_users(filter_username)
+    # Usar batch_size si no se especifica un usuario específico
+    limit = batch_size if not filter_username else None
+    moodle_users = get_moodle_users(filter_username, limit=limit)
+    
     if not moodle_users:
-        print(f"⚠️ No se encontró el usuario {filter_username} en Moodle")
+        if filter_username:
+            print(f"⚠️ No se encontró el usuario {filter_username} en Moodle")
+        else:
+            print(f"⚠️ No se encontraron usuarios en Moodle")
         return
 
     # Obtener usuarios de Discourse para comparación
     discourse_users = get_all_discourse_users()
     print(f"📊 Usuarios en Moodle: {len(moodle_users)}")
     print(f"📊 Usuarios en Discourse: {len(discourse_users)}")
+    
+    # Mostrar información del lote
+    if batch_size and not filter_username:
+        print(f"📦 Procesando lote de {len(moodle_users)} usuarios (límite: {batch_size})")
+    elif filter_username:
+        print(f"👤 Procesando usuario específico: {filter_username}")
+    else:
+        print(f"📦 Procesando todos los usuarios disponibles")
 
     # Construir caché de usuarios de Discourse (usar usernames normalizados)
     moodle_usernames = [normalize_username(mu.get("username")) for mu in moodle_users if mu.get("username")]
@@ -586,7 +605,10 @@ def main(dry_run=True, filter_username=None, force_recreate=False):
     print(f"   Usuarios actualizados: {stats['actualizados']}")
     print(f"   Usuarios excluidos: {stats['excluidos']}")
     print(f"   Errores: {stats['errores']}")
-    print(f"   Tiempo promedio por usuario: {total_time/stats['procesados']:.2f} segundos")
+    if stats['procesados'] > 0:
+        print(f"   Tiempo promedio por usuario: {total_time/stats['procesados']:.2f} segundos")
+    else:
+        print(f"   Tiempo promedio por usuario: N/A (no se procesaron usuarios)")
 
 
 if __name__ == "__main__":
@@ -605,7 +627,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Fuerza la recreación de usuarios existentes en Discourse"
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=settings.BATCH_SIZE,
+        help=f"Número de usuarios a procesar en esta ejecución (por defecto: {settings.BATCH_SIZE})"
+    )
     args = parser.parse_args()
 
-    main(dry_run=not args.apply, filter_username=args.user, force_recreate=args.force_recreate)
+    main(dry_run=not args.apply, filter_username=args.user, force_recreate=args.force_recreate, batch_size=args.batch_size)
 

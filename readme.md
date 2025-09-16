@@ -4,22 +4,22 @@ Script en Python para sincronizar datos de usuarios desde **Moodle** hacia **Dis
 
 Este script permite mantener actualizados automáticamente los perfiles de usuarios en Discourse con la información más reciente de Moodle, especialmente útil en entornos donde los usuarios se autentican mediante SSO con Moodle.
 
-## ✨ Características
+## Características
 
-- 🔄 **Sincronización automática** de perfiles de usuario
-- 📝 **Actualización de campos**:
+- **Sincronización automática** de perfiles de usuario
+- **Actualización de campos**:
   - Nombre completo (`name`)
   - Ubicación (`location`, combinando ciudad y país de Moodle)
   - Biografía (`bio_raw`)
   - Email (`email`, requiere confirmación del usuario en Discourse)
-- 🧪 **Modo dry-run** para revisar cambios antes de aplicarlos
-- 🎯 **Sincronización selectiva** por usuario específico
-- ✅ **Verificación automática** de cambios aplicados
-- 🔐 **Soporte para API key de administrador** de Discourse
-- 📦 **Procesamiento por lotes** para manejar grandes cantidades de usuarios
-- 📊 **Logging detallado en CSV** con timestamp y seguimiento completo
-- 🔄 **Normalización automática** de nombres de usuario para cumplir con requisitos de Discourse
-- 📈 **Procesamiento secuencial** para evitar duplicados y controlar la carga
+- **Modo dry-run** para revisar cambios antes de aplicarlos
+- **Sincronización selectiva** por usuario específico
+- **Verificación automática** de cambios aplicados
+- **Soporte para API key de administrador** de Discourse
+- **Procesamiento por lotes** para manejar grandes cantidades de usuarios
+- **Logging detallado en CSV** con timestamp y seguimiento completo
+- **Normalización automática** de nombres de usuario para cumplir con requisitos de Discourse
+- **Procesamiento secuencial** para evitar duplicados y controlar la carga
 
 ## 🚀 Instalación
 
@@ -221,10 +221,7 @@ El script combina inteligentemente los campos de ciudad y país:
 Cada ejecución crea un archivo CSV único con formato `sync_log_YYYYMMDD_HHMMSS.csv` que contiene:
 
 ```csv
-timestamp,original_username,normalized_username,fullname,email,action,status,message,location,country,description
-2025-09-16 14:37:53,francois,francois,Francois Soulard,francois@rio20.net,CREATE,DRY_RUN,Usuario creado en modo dry-run,,FR,
-2025-09-16 14:38:32,jason.nardi,jason.nardi,Jason Nardi,jason.nardi@ripess.eu,CREATE,DRY_RUN,Usuario creado en modo dry-run,Firenze,IT,
-2025-09-16 14:38:54,lauravigoriti,lauravigoriti,Laura Vigoriti,laura.vigoriti@cospe.org,UPDATE,EXISTS,Usuario existe en Discourse, procesando actualizaciones,,IT,
+timestamp,original_username,normalized_username,fullname,email,
 ```
 
 ### Tipos de acciones registradas
@@ -287,16 +284,6 @@ crontab -e
 | **Procesamiento lento** | Usar `--offset` para procesar en paralelo diferentes rangos |
 | **Logs no se generan** | Verificar permisos de escritura en el directorio del script |
 
-### Logs y debugging
-
-El script proporciona información detallada:
-- ✅ Cambios aplicados exitosamente
-- ❌ Errores encontrados
-- 🔍 Verificación de cambios
-- 📝 Comparación de datos antes/después
-- 📊 Archivos CSV con timestamp para cada ejecución
-- 🔄 Información de normalización de usernames
-- 📦 Estadísticas de procesamiento por lotes
 
 ### Análisis de logs CSV
 
@@ -307,7 +294,7 @@ Los archivos CSV generados permiten:
 - **Estadísticas de procesamiento** por lote
 - **Identificación de problemas** de normalización
 
-## 🔬 Detalles técnicos
+##  Detalles técnicos
 
 ### API Endpoints utilizados
 
@@ -333,16 +320,6 @@ El script incluye verificación automática para confirmar que los cambios se ap
 ## 📄 Licencia
 
 Este proyecto está bajo la licencia especificada en el archivo `LICENSE`.
-
-## 🤝 Contribuciones
-
-Las contribuciones son bienvenidas. Por favor:
-
-1. Fork el repositorio
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
 
 ## 💡 Ejemplos prácticos
 
@@ -392,15 +369,6 @@ python3 sync_moodle_discourse.py --apply --batch-size 20 --offset 0 2>&1 | tee p
 grep "SUCCESS" sync_log_*.csv | wc -l
 grep "ERROR" sync_log_*.csv | wc -l
 ```
-
-## 📞 Soporte
-
-Para reportar bugs o solicitar features, por favor:
-
-- Abre un issue en GitHub
-- Incluye información detallada sobre el problema
-- Adjunta logs relevantes si es posible
-- Incluye el archivo CSV de log si es relevante
 
 ---
 

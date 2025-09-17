@@ -18,6 +18,7 @@ Este script permite mantener actualizados automáticamente los perfiles de usuar
 - **Soporte para API key de administrador** de Discourse
 - **Procesamiento por lotes** para manejar grandes cantidades de usuarios
 - **Logging detallado en CSV** con timestamp y seguimiento completo
+- **Nombres de archivo diferenciados** por modo de ejecución (dryrun/apply) y entorno (development/production)
 - **Normalización automática** de nombres de usuario para cumplir con requisitos de Discourse
 - **Procesamiento secuencial** para evitar duplicados y controlar la carga
 
@@ -51,6 +52,17 @@ Este script permite mantener actualizados automáticamente los perfiles de usuar
 4. **Configurar credenciales**:
    - Copiar `settings.example.py` a `settings.py`
    - Editar `settings.py` con tus credenciales:
+   - Configurar la variable `ENV` ("development" o "production")
+
+### Configuración por entornos
+
+El script soporta diferentes configuraciones para desarrollo y producción:
+
+- **`settings.py`** - Configuración por defecto (desarrollo)
+- **`settings_dev.py`** - Configuración específica de desarrollo
+- **`settings_prod.py`** - Configuración específica de producción
+
+La variable `ENV` en cada archivo determina el entorno y se incluye en el nombre de los archivos de log.
      ```python
      # Moodle
      MOODLE_ENDPOINT = "https://tu-moodle.com/webservice/rest/server.php"
@@ -168,7 +180,20 @@ Cada ejecución genera un archivo CSV con timestamp que incluye:
 - **Estado** (SUCCESS, ERROR, DRY_RUN, etc.)
 - **Mensaje descriptivo** de la acción
 
-**Formato del archivo**: `sync_log_YYYYMMDD_HHMMSS.csv`
+#### Nombres de archivo diferenciados
+
+Los archivos de log incluyen el entorno y modo de ejecución en el nombre:
+
+- **`sync_log_development_dryrun_YYYYMMDD_HHMMSS.csv`** - Ejecuciones en modo dry-run en desarrollo
+- **`sync_log_development_apply_YYYYMMDD_HHMMSS.csv`** - Ejecuciones reales en desarrollo
+- **`sync_log_production_dryrun_YYYYMMDD_HHMMSS.csv`** - Ejecuciones en modo dry-run en producción
+- **`sync_log_production_apply_YYYYMMDD_HHMMSS.csv`** - Ejecuciones reales en producción
+
+Esto permite identificar fácilmente:
+- **Qué logs corresponden a pruebas** vs **cambios reales** en la base de datos
+- **En qué entorno** se ejecutó cada log (development/production)
+
+**Formato del archivo**: `sync_log_{entorno}_{modo}_{YYYYMMDD_HHMMSS}.csv`
 
 ### Campos sincronizados
 
@@ -293,6 +318,34 @@ Los archivos CSV generados permiten:
 - **Seguimiento de usuarios** específicos
 - **Estadísticas de procesamiento** por lote
 - **Identificación de problemas** de normalización
+
+#### Comandos útiles para análisis
+
+```bash
+# Ver todos los logs
+ls -la sync_log_*.csv
+
+# Ver solo logs de desarrollo
+ls -la sync_log_development_*.csv
+
+# Ver solo logs de producción
+ls -la sync_log_production_*.csv
+
+# Ver solo logs de ejecución real (apply) en desarrollo
+ls -la sync_log_development_apply_*.csv
+
+# Ver solo logs de pruebas (dry-run) en producción
+ls -la sync_log_production_dryrun_*.csv
+
+# Contar usuarios creados en ejecuciones reales de desarrollo
+grep "CREATE,SUCCESS" sync_log_development_apply_*.csv | wc -l
+
+# Ver errores en ejecuciones reales de producción
+grep "ERROR" sync_log_production_apply_*.csv
+
+# Ver usuarios excluidos en todos los entornos
+grep "EXCLUDE" sync_log_*.csv
+```
 
 ##  Detalles técnicos
 

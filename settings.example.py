@@ -1,5 +1,7 @@
 # Archivo de configuración para sync_moodle_discourse
 
+ENV = "development"
+
 # Moodle
 MOODLE_ENDPOINT = "MOODLE URL ENDPOINT"
 MOODLE_TOKEN = "MOODLE TOKEN"

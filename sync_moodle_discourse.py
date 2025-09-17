@@ -10,10 +10,12 @@ from country_codes import get_country_name
 from tqdm import tqdm
 
 
-def create_log_filename():
+def create_log_filename(dry_run=True):
     """Crea un nombre de archivo único para el log basado en fecha y hora"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"sync_log_{timestamp}.csv"
+    mode = "dryrun" if dry_run else "apply"
+    env = getattr(settings, 'ENV', 'unknown')
+    return f"sync_log_{env}_{mode}_{timestamp}.csv"
 
 def write_log_header(filename):
     """Escribe el encabezado del archivo CSV de log"""
@@ -47,6 +49,43 @@ def log_user_action(filename, original_username, normalized_username, fullname, 
             'country': country,
             'description': description
         })
+
+def build_discourse_url(path):
+    """Construye una URL de Discourse correctamente, evitando dobles barras"""
+    base_url = settings.DISCOURSE_URL.rstrip('/')
+    return f"{base_url}{path}"
+
+def check_email_exists(email, debug=False):
+    """Verifica si un email ya existe en Discourse"""
+    url = build_discourse_url("/admin/users/list/active.json?show_emails=true")
+    headers = {
+        "Api-Key": settings.DISCOURSE_API_KEY,
+        "Api-Username": settings.DISCOURSE_API_USER
+    }
+    
+    if debug:
+        print(f"   🔍 Verificando si el email {email} ya existe en Discourse...")
+    
+    try:
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            users = r.json()
+            for user in users:
+                if user.get('email') == email:
+                    if debug:
+                        print(f"   ⚠️ Email {email} ya existe para el usuario: {user.get('username')}")
+                    return user
+            if debug:
+                print(f"   ✅ Email {email} no existe en Discourse")
+            return None
+        else:
+            if debug:
+                print(f"   ❌ Error verificando email: {r.status_code}")
+            return None
+    except Exception as e:
+        if debug:
+            print(f"   ❌ Excepción verificando email: {e}")
+        return None
 
 def normalize_username(username):
     """
@@ -159,24 +198,46 @@ def get_moodle_users(filter_username=None, limit=None, offset=0):
     return users
 
 
-def get_discourse_user(username, user_cache=None):
+def get_discourse_user(username, user_cache=None, debug=False):
     """Obtiene datos actuales del usuario en Discourse"""
     # Si tenemos caché, usarlo primero
     if user_cache and username in user_cache:
+        if debug:
+            print(f"   📋 Usuario {username} encontrado en caché")
         return user_cache[username]
     
-    url = f"{settings.DISCOURSE_URL}/u/{username}.json"
+    url = build_discourse_url(f"/u/{username}.json")
     headers = {
         "Api-Key": settings.DISCOURSE_API_KEY,
         "Api-Username": settings.DISCOURSE_API_USER
     }
-    r = requests.get(url, headers=headers)
-    if r.status_code == 200:
-        user_data = r.json().get("user", {})
-        # Guardar en caché si se proporciona
-        if user_cache is not None:
-            user_cache[username] = user_data
-        return user_data
+    
+    if debug:
+        print(f"   🔍 Buscando usuario {username} en {url}")
+    
+    try:
+        r = requests.get(url, headers=headers)
+        if debug:
+            print(f"   📡 Respuesta: {r.status_code}")
+        
+        if r.status_code == 200:
+            user_data = r.json().get("user", {})
+            if debug:
+                print(f"   ✅ Usuario {username} encontrado: {user_data.get('id', 'sin ID')}")
+            # Guardar en caché si se proporciona
+            if user_cache is not None:
+                user_cache[username] = user_data
+            return user_data
+        elif r.status_code == 404:
+            if debug:
+                print(f"   ❌ Usuario {username} no encontrado (404)")
+        else:
+            if debug:
+                print(f"   ⚠️ Error inesperado para {username}: {r.status_code} - {r.text[:100]}")
+    except Exception as e:
+        if debug:
+            print(f"   ❌ Excepción buscando {username}: {e}")
+    
     return {}
 
 
@@ -224,7 +285,7 @@ def update_discourse_user_profile(username, updates, discourse_user=None, dry_ru
 
     # Para actualizar el perfil, usamos la estructura correcta descubierta
     # Los campos deben enviarse directamente, no envueltos en {'user': ...}
-    url = f"{settings.DISCOURSE_URL}/u/{username}.json"
+    url = build_discourse_url(f"/u/{username}.json")
     headers = {
         "Api-Key": settings.DISCOURSE_API_KEY,
         "Api-Username": settings.DISCOURSE_API_USER,
@@ -252,7 +313,7 @@ def update_discourse_user_bio(username, bio_raw, discourse_user=None, dry_run=Tr
         print(f"⚠️ Usuario {username} no encontrado en Discourse, saltando biografía")
         return
         
-    url = f"{settings.DISCOURSE_URL}/u/{username}/preferences/about"
+    url = build_discourse_url(f"/u/{username}/preferences/about")
     headers = {
         "Api-Key": settings.DISCOURSE_API_KEY,
         "Api-Username": settings.DISCOURSE_API_USER,
@@ -285,7 +346,7 @@ def update_discourse_email(username, new_email, discourse_user=None, dry_run=Tru
         print(f"⚠️ Usuario {username} no encontrado en Discourse, saltando email")
         return
         
-    url = f"{settings.DISCOURSE_URL}/u/{username}/preferences/email"
+    url = build_discourse_url(f"/u/{username}/preferences/email")
     headers = {
         "Api-Key": settings.DISCOURSE_API_KEY,
         "Api-Username": settings.DISCOURSE_API_USER,
@@ -331,7 +392,7 @@ def verify_changes(username, expected_updates):
 
 def get_all_discourse_users():
     """Obtiene todos los usuarios de Discourse para comparación"""
-    url = f"{settings.DISCOURSE_URL}/admin/users/list/active.json"
+    url = build_discourse_url("/admin/users/list/active.json")
     headers = {
         "Api-Key": settings.DISCOURSE_API_KEY,
         "Api-Username": settings.DISCOURSE_API_USER
@@ -416,7 +477,82 @@ def get_moodle_groups_for_user(username):
         return []
 
 
-def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None):
+def update_existing_user_with_conflict(existing_username, moodle_data, dry_run=True, log_filename=None, debug=False):
+    """Actualiza un usuario existente que tiene conflicto de email"""
+    print(f"   🔄 Actualizando usuario existente: {existing_username}")
+    
+    if dry_run:
+        print(f"   - [Dry-run] ACTUALIZARÍA usuario existente: {existing_username}")
+        print(f"     Datos: {moodle_data.get('fullname')} - {moodle_data.get('email')}")
+        
+        # Log de dry-run
+        if log_filename:
+            log_user_action(
+                log_filename, moodle_data.get('username', 'unknown'), existing_username,
+                moodle_data.get('fullname'), moodle_data.get('email'),
+                'UPDATE', 'DRY_RUN', f'Usuario existente {existing_username} actualizado en modo dry-run',
+                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+            )
+        return True
+    
+    # Obtener datos actuales del usuario
+    discourse_user = get_discourse_user(existing_username, debug=debug)
+    if not discourse_user:
+        print(f"   ❌ No se pudo obtener datos del usuario {existing_username}")
+        return False
+    
+    # Actualizar campos
+    updated = False
+    
+    # Preparar actualizaciones
+    updates = {}
+    
+    # Actualizar nombre
+    if moodle_data.get('fullname') and moodle_data.get('fullname') != discourse_user.get('name'):
+        updates['name'] = moodle_data.get('fullname')
+    
+    # Actualizar ubicación (combinar ciudad y país)
+    location_parts = []
+    if moodle_data.get('city'):
+        location_parts.append(moodle_data.get('city'))
+    if moodle_data.get('country'):
+        country_name = get_country_name(moodle_data.get('country'))
+        if country_name:
+            location_parts.append(country_name)
+    
+    if location_parts:
+        new_location = ', '.join(location_parts)
+        if new_location != discourse_user.get('location'):
+            updates['location'] = new_location
+    
+    # Actualizar biografía
+    if moodle_data.get('description') and moodle_data.get('description') != discourse_user.get('bio_raw'):
+        updates['bio_raw'] = moodle_data.get('description')
+    
+    # Aplicar actualizaciones si hay alguna
+    if updates:
+        if update_discourse_user_profile(existing_username, updates, discourse_user, dry_run=dry_run):
+            updated = True
+    else:
+        print(f"   ℹ️ No hay cambios necesarios para {existing_username}")
+    
+    if updated:
+        print(f"   ✅ Usuario {existing_username} actualizado exitosamente")
+        
+        # Log de éxito
+        if log_filename:
+            log_user_action(
+                log_filename, moodle_data.get('username', 'unknown'), existing_username,
+                moodle_data.get('fullname'), moodle_data.get('email'),
+                'UPDATE', 'SUCCESS', f'Usuario existente {existing_username} actualizado exitosamente',
+                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+            )
+        return True
+    else:
+        print(f"   ⚠️ No se realizaron cambios en {existing_username}")
+        return False
+
+def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None, debug=False):
     """Crea un nuevo usuario en Discourse"""
     # Normalizar el nombre de usuario para cumplir con los requisitos de Discourse
     original_username = username
@@ -424,6 +560,27 @@ def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None
     
     if original_username != normalized_username:
         print(f"   🔄 Normalizando username: '{original_username}' → '{normalized_username}'")
+    
+    # Verificar si el email ya existe
+    email = moodle_data.get('email')
+    if email:
+        existing_user = check_email_exists(email, debug=debug)
+        if existing_user:
+            print(f"   ⚠️ Email {email} ya existe para el usuario: {existing_user.get('username')}")
+            print(f"   💡 Opciones:")
+            print(f"     1. Actualizar el usuario existente {existing_user.get('username')}")
+            print(f"     2. Usar un email diferente")
+            print(f"     3. Saltar este usuario")
+            
+            # Log del conflicto
+            if log_filename:
+                log_user_action(
+                    log_filename, original_username, normalized_username,
+                    moodle_data.get('fullname'), email,
+                    'CONFLICT', 'EMAIL_EXISTS', f'Email ya existe para usuario {existing_user.get("username")}',
+                    moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                )
+            return existing_user  # Retornar el usuario existente para poder actualizarlo
     
     if dry_run:
         print(f"   - [Dry-run] CREARÍA nuevo usuario: {normalized_username}")
@@ -441,7 +598,7 @@ def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None
             )
         return True
     
-    url = f"{settings.DISCOURSE_URL}/users.json"
+    url = build_discourse_url("/users.json")
     headers = {
         "Api-Key": settings.DISCOURSE_API_KEY,
         "Api-Username": settings.DISCOURSE_API_USER,
@@ -462,11 +619,21 @@ def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None
         
         if r.status_code == 200:
             response = r.json()
+            if debug:
+                print(f"   📋 Respuesta completa de creación: {response}")
+            
             if response.get("success"):
                 print(f"✅ Usuario {normalized_username} creado exitosamente")
                 if original_username != normalized_username:
                     print(f"   Username original: {original_username}")
                 print(f"   Nota: Usuario creado inactivo, requiere activación por email")
+                
+                # Mostrar información adicional del usuario creado
+                if "user" in response:
+                    user_info = response["user"]
+                    print(f"   📊 ID del usuario: {user_info.get('id', 'N/A')}")
+                    print(f"   📊 Estado: {'Activo' if user_info.get('active') else 'Inactivo'}")
+                    print(f"   📊 Staged: {user_info.get('staged', 'N/A')}")
                 
                 # Log de éxito
                 if log_filename:
@@ -476,8 +643,33 @@ def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None
                         'CREATE', 'SUCCESS', 'Usuario creado exitosamente',
                         moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
                     )
+                
+                # Esperar un momento para que el usuario se propague en Discourse
+                print(f"   ⏳ Esperando propagación del usuario en Discourse...")
+                time.sleep(3)
+                
+                # Verificar que el usuario se creó correctamente
+                print(f"   🔍 Verificando creación del usuario...")
+                verification_user = get_discourse_user(normalized_username, debug=debug)
+                if verification_user and verification_user.get("id"):
+                    print(f"   ✅ Usuario {normalized_username} verificado en Discourse")
+                else:
+                    print(f"   ⚠️ Usuario {normalized_username} creado pero no verificado - puede requerir más tiempo")
+                    # Intentar una vez más después de otro delay
+                    print(f"   ⏳ Esperando más tiempo para verificación...")
+                    time.sleep(5)
+                    verification_user2 = get_discourse_user(normalized_username, debug=debug)
+                    if verification_user2 and verification_user2.get("id"):
+                        print(f"   ✅ Usuario {normalized_username} verificado en segundo intento")
+                    else:
+                        print(f"   ❌ Usuario {normalized_username} no se pudo verificar después de múltiples intentos")
+                
                 return True
             else:
+                print(f"   ⚠️ Respuesta de creación: {response}")
+                if "message" in response:
+                    print(f"   📝 Mensaje: {response['message']}")
+                
                 error_msg = response.get('message', 'Error desconocido')
                 print(f"❌ Error creando usuario {normalized_username}: {error_msg}")
                 
@@ -533,11 +725,14 @@ def sync_user_groups(username, moodle_groups, dry_run=True):
     print(f"   Nota: Sincronización de grupos requiere implementación adicional")
 
 
-def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=None, offset=0):
+def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=None, offset=0, debug=False):
     # Crear archivo de log
-    log_filename = create_log_filename()
+    log_filename = create_log_filename(dry_run)
     write_log_header(log_filename)
     print(f"📝 Log de ejecución: {log_filename}")
+    
+    if debug:
+        print(f"🐛 Modo debug activado - información detallada habilitada")
     
     # Cargar lista de usuarios excluidos
     excluded_users = load_excluded_users()
@@ -628,11 +823,29 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
                 if original_username != normalized_username:
                     print(f"   Username original: {original_username}")
             
-            if create_discourse_user(original_username, mu, dry_run=dry_run, log_filename=log_filename):
+            result = create_discourse_user(original_username, mu, dry_run=dry_run, log_filename=log_filename, debug=debug)
+            if result is True:
                 stats['creados'] += 1
                 # Obtener grupos de Moodle para este usuario (usar username original)
                 moodle_groups = get_moodle_groups_for_user(original_username)
                 sync_user_groups(normalized_username, moodle_groups, dry_run=dry_run)
+            elif isinstance(result, dict) and 'username' in result:
+                # Conflicto de email - actualizar usuario existente
+                existing_username = result['username']
+                print(f"   🔄 Actualizando usuario existente {existing_username} con datos de {original_username}")
+                if update_existing_user_with_conflict(existing_username, mu, dry_run=dry_run, log_filename=log_filename, debug=debug):
+                    stats['actualizados'] += 1
+                    # Obtener grupos de Moodle para este usuario (usar username original)
+                    moodle_groups = get_moodle_groups_for_user(original_username)
+                    sync_user_groups(existing_username, moodle_groups, dry_run=dry_run)
+                else:
+                    stats['errores'] += 1
+                progress_bar.update(1)
+                continue
+            elif result is False:
+                # Usuario no creado por conflicto de email
+                stats['errores'] += 1
+                print(f"   ⏭️ Saltando usuario {normalized_username} debido a conflicto de email")
             else:
                 stats['errores'] += 1
                 progress_bar.update(1)
@@ -747,8 +960,14 @@ if __name__ == "__main__":
         default=0,
         help="Número de usuarios a saltar desde el inicio (para procesamiento secuencial, por defecto: 0)"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Activa modo debug con información detallada"
+    )
     args = parser.parse_args()
 
     main(dry_run=not args.apply, filter_username=args.user, force_recreate=args.force_recreate, 
-         batch_size=args.batch_size, offset=args.offset)
+         batch_size=args.batch_size, offset=args.offset, debug=args.debug)
 
+ 

@@ -22,7 +22,7 @@ Este script permite mantener actualizados automáticamente los perfiles de usuar
 - **Normalización automática** de nombres de usuario para cumplir con requisitos de Discourse
 - **Procesamiento secuencial** para evitar duplicados y controlar la carga
 
-## 🚀 Instalación
+## Instalación
 
 ### Requisitos previos
 
@@ -147,7 +147,7 @@ python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 690
 | **Procesamiento por lotes** | Procesa un número específico de usuarios | `python3 sync_moodle_discourse.py --apply --batch-size 20` |
 | **Procesamiento secuencial** | Procesa lotes sin duplicados | `python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 50` |
 
-## 🔧 Funcionamiento
+## Funcionamiento
 
 ### Proceso de sincronización
 
@@ -211,7 +211,7 @@ El script combina inteligentemente los campos de ciudad y país:
 - **Si solo hay país**: `"País"` (ej: "AR")
 - **Si solo hay ciudad**: `"Ciudad"` (ej: "Buenos Aires")
 
-## ⚠️ Notas importantes
+## Notas importantes
 
 ### Seguridad y permisos
 
@@ -232,7 +232,7 @@ El script combina inteligentemente los campos de ciudad y país:
 - Requiere que el SSO esté configurado correctamente
 - La normalización de nombres de usuario es determinística pero puede causar colisiones si dos usuarios diferentes se normalizan al mismo username
 
-## 📊 Procesamiento por lotes y logging
+## Procesamiento por lotes y logging
 
 ### Ventajas del procesamiento por lotes
 
@@ -359,10 +359,10 @@ grep "EXCLUDE" sync_log_*.csv
 **Importante**: La API de Discourse requiere que los campos se envíen directamente, no envueltos en un objeto `user`:
 
 ```python
-# ✅ CORRECTO
+# CORRECTO
 {"location": "AR", "name": "Usuario"}
 
-# ❌ INCORRECTO  
+# INCORRECTO  
 {"user": {"location": "AR", "name": "Usuario"}}
 ```
 
@@ -374,7 +374,7 @@ El script incluye verificación automática para confirmar que los cambios se ap
 
 Este proyecto está bajo la licencia especificada en el archivo `LICENSE`.
 
-## 💡 Ejemplos prácticos
+## Ejemplos prácticos
 
 ### Ejemplo 1: Procesamiento inicial de 100 usuarios
 

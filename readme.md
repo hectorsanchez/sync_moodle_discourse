@@ -267,7 +267,7 @@ Para procesar 700+ usuarios de forma eficiente:
 4. **Procesar en horarios de baja actividad**
 5. **Mantener logs** para auditoría y seguimiento
 
-## 🕐 Automatización
+## Automatización
 
 ### Cron job (Linux/macOS)
 
@@ -294,7 +294,7 @@ crontab -e
 3. Configurar para ejecutar el script con parámetros `--apply`
 4. Establecer frecuencia deseada
 
-## 🐛 Solución de problemas
+## Solución de problemas
 
 ### Problemas comunes
 
@@ -308,7 +308,6 @@ crontab -e
 | **Lotes muy grandes** | Reducir `--batch-size` para evitar timeouts |
 | **Procesamiento lento** | Usar `--offset` para procesar en paralelo diferentes rangos |
 | **Logs no se generan** | Verificar permisos de escritura en el directorio del script |
-
 
 ### Análisis de logs CSV
 
@@ -347,7 +346,7 @@ grep "ERROR" sync_log_production_apply_*.csv
 grep "EXCLUDE" sync_log_*.csv
 ```
 
-##  Detalles técnicos
+## Detalles técnicos
 
 ### API Endpoints utilizados
 
@@ -370,7 +369,7 @@ grep "EXCLUDE" sync_log_*.csv
 
 El script incluye verificación automática para confirmar que los cambios se aplicaron correctamente, comparando los valores esperados con los valores actuales en Discourse.
 
-## 📄 Licencia
+## Licencia
 
 Este proyecto está bajo la licencia especificada en el archivo `LICENSE`.
 

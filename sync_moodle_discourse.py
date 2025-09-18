@@ -97,6 +97,7 @@ def normalize_username(username):
     - Guiones (-)
     - Puntos (.)
     - Guiones bajos (_)
+    - Máximo 20 caracteres
     
     Args:
         username (str): Nombre de usuario original de Moodle
@@ -127,6 +128,15 @@ def normalize_username(username):
     # Asegurar que no empiece con número (algunos sistemas no lo permiten)
     if normalized[0].isdigit():
         normalized = 'u' + normalized
+    
+    # Truncar a máximo 20 caracteres (límite de Discourse)
+    if len(normalized) > 20:
+        normalized = normalized[:20]
+        # Asegurar que no termine en guión bajo después del truncado
+        normalized = normalized.rstrip('_')
+        # Si queda vacío después del truncado, usar 'user'
+        if not normalized:
+            normalized = 'user'
     
     return normalized
 

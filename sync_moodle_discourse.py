@@ -22,18 +22,18 @@ def write_log_header(filename):
     with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
         fieldnames = [
             'timestamp', 'original_username', 'normalized_username', 'fullname', 'email',
-            'action', 'status', 'message', 'location', 'country', 'description'
+            'action', 'status', 'message', 'location', 'country', 'description', 'activated'
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
 def log_user_action(filename, original_username, normalized_username, fullname, email, 
-                   action, status, message, location=None, country=None, description=None):
+                   action, status, message, location=None, country=None, description=None, activated=False):
     """Registra una acción de usuario en el archivo CSV de log"""
     with open(filename, 'a', newline='', encoding='utf-8') as csvfile:
         fieldnames = [
             'timestamp', 'original_username', 'normalized_username', 'fullname', 'email',
-            'action', 'status', 'message', 'location', 'country', 'description'
+            'action', 'status', 'message', 'location', 'country', 'description', 'activated'
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow({
@@ -47,7 +47,8 @@ def log_user_action(filename, original_username, normalized_username, fullname, 
             'message': message,
             'location': location,
             'country': country,
-            'description': description
+            'description': description,
+            'activated': 'YES' if activated else 'NO'
         })
 
 def build_discourse_url(path):
@@ -97,7 +98,7 @@ def normalize_username(username):
     - Guiones (-)
     - Puntos (.)
     - Guiones bajos (_)
-    - Máximo 20 caracteres
+        - Máximo 20 caracteres
     
     Args:
         username (str): Nombre de usuario original de Moodle
@@ -350,6 +351,42 @@ def update_discourse_user_bio(username, bio_raw, discourse_user=None, dry_run=Tr
         print(f"[ERROR] Excepción actualizando biografía de {username}: {e}")
 
 
+def activate_discourse_user(user_id, dry_run=True):
+    """Activa y aprueba un usuario en Discourse"""
+    if dry_run:
+        print(f"   - [Dry-run] ACTIVARÍA usuario ID: {user_id}")
+        return True
+    
+    # Primero aprobar el usuario
+    approve_url = build_discourse_url(f"/admin/users/{user_id}/approve")
+    headers = {
+        "Api-Key": settings.DISCOURSE_API_KEY,
+        "Api-Username": settings.DISCOURSE_API_USER,
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        # Aprobar usuario
+        r = requests.put(approve_url, headers=headers)
+        if r.status_code == 200:
+            print(f"   [OK] Usuario {user_id} aprobado exitosamente")
+        else:
+            print(f"   [WARNING] Error aprobando usuario {user_id}: {r.status_code} - {r.text}")
+        
+        # Luego activar usuario
+        activate_url = build_discourse_url(f"/admin/users/{user_id}/activate")
+        r = requests.put(activate_url, headers=headers)
+        if r.status_code == 200:
+            print(f"   [OK] Usuario {user_id} activado exitosamente")
+            return True
+        else:
+            print(f"   [ERROR] Error activando usuario {user_id}: {r.status_code} - {r.text}")
+            return False
+            
+    except Exception as e:
+        print(f"   [ERROR] Excepción activando usuario {user_id}: {e}")
+        return False
+
 def update_discourse_email(username, new_email, discourse_user=None, dry_run=True):
     """Actualiza el email en Discourse (requiere confirmación del usuario)"""
     if not discourse_user:
@@ -487,7 +524,7 @@ def get_moodle_groups_for_user(username):
         return []
 
 
-def update_existing_user_with_conflict(existing_username, moodle_data, dry_run=True, log_filename=None, debug=False):
+def update_existing_user_with_conflict(existing_username, moodle_data, dry_run=True, log_filename=None, debug=False, activate_users=False):
     """Actualiza un usuario existente que tiene conflicto de email"""
     print(f"   [INFO] Actualizando usuario existente: {existing_username}")
     
@@ -555,14 +592,15 @@ def update_existing_user_with_conflict(existing_username, moodle_data, dry_run=T
                 log_filename, moodle_data.get('username', 'unknown'), existing_username,
                 moodle_data.get('fullname'), moodle_data.get('email'),
                 'UPDATE', 'SUCCESS', f'Usuario existente {existing_username} actualizado exitosamente',
-                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description'),
+                activated=False
             )
         return True
     else:
         print(f"   [INFO] No se realizaron cambios en {existing_username}")
         return False
 
-def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None, debug=False):
+def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None, debug=False, activate_users=False):
     """Crea un nuevo usuario en Discourse"""
     # Normalizar el nombre de usuario para cumplir con los requisitos de Discourse
     original_username = username
@@ -588,7 +626,8 @@ def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None
                     log_filename, original_username, normalized_username,
                     moodle_data.get('fullname'), email,
                     'CONFLICT', 'EMAIL_EXISTS', f'Email ya existe para usuario {existing_user.get("username")}',
-                    moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                    moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description'),
+                    activated=False
                 )
             return existing_user  # Retornar el usuario existente para poder actualizarlo
     
@@ -604,7 +643,8 @@ def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None
                 log_filename, original_username, normalized_username,
                 moodle_data.get('fullname'), moodle_data.get('email'),
                 'CREATE', 'DRY_RUN', 'Usuario creado en modo dry-run',
-                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description'),
+                activated=activate_users
             )
         return True
     
@@ -638,20 +678,36 @@ def create_discourse_user(username, moodle_data, dry_run=True, log_filename=None
                     print(f"   Username original: {original_username}")
                 print(f"   Nota: Usuario creado inactivo, requiere activación por email")
                 
-                # Mostrar información adicional del usuario creado
-                if "user" in response:
-                    user_info = response["user"]
-                    print(f"   [INFO] ID del usuario: {user_info.get('id', 'N/A')}")
-                    print(f"   [INFO] Estado: {'Activo' if user_info.get('active') else 'Inactivo'}")
-                    print(f"   [INFO] Staged: {user_info.get('staged', 'N/A')}")
+                # Obtener información del usuario creado para activación
+                user_id = None
+                if activate_users:
+                    # Obtener el ID del usuario recién creado
+                    print(f"   [INFO] Obteniendo ID del usuario {normalized_username} para activación...")
+                    discourse_user = get_discourse_user(normalized_username, debug=debug)
+                    if discourse_user and discourse_user.get('id'):
+                        user_id = discourse_user.get('id')
+                        print(f"   [INFO] ID del usuario: {user_id}")
+                        print(f"   [INFO] Estado actual: {'Activo' if discourse_user.get('active') else 'Inactivo'}")
+                        
+                        # Activar usuario si se solicita
+                        print(f"   [ACTIVATE] Activando usuario {normalized_username}...")
+                        if activate_discourse_user(user_id, dry_run=dry_run):
+                            print(f"   [OK] Usuario {normalized_username} activado y aprobado")
+                        else:
+                            print(f"   [WARNING] No se pudo activar usuario {normalized_username}")
+                    else:
+                        print(f"   [WARNING] No se pudo obtener ID del usuario {normalized_username} para activación")
                 
                 # Log de éxito
                 if log_filename:
+                    # Determinar si se activó el usuario
+                    was_activated = activate_users and user_id is not None
                     log_user_action(
                         log_filename, original_username, normalized_username,
                         moodle_data.get('fullname'), moodle_data.get('email'),
                         'CREATE', 'SUCCESS', 'Usuario creado exitosamente',
-                        moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description')
+                        moodle_data.get('city'), moodle_data.get('country'), moodle_data.get('description'),
+                        activated=was_activated
                     )
                 
                 # Esperar un momento para que el usuario se propague en Discourse
@@ -735,7 +791,7 @@ def sync_user_groups(username, moodle_groups, dry_run=True):
     print(f"   Nota: Sincronización de grupos requiere implementación adicional")
 
 
-def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=None, offset=0, debug=False):
+def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=None, offset=0, debug=False, activate_users=False):
     # Crear archivo de log
     log_filename = create_log_filename(dry_run)
     write_log_header(log_filename)
@@ -743,6 +799,9 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
     
     if debug:
         print(f"[DEBUG] Modo debug activado - información detallada habilitada")
+    
+    if activate_users:
+        print(f"[ACTIVATE] Activación automática de usuarios habilitada")
     
     # Cargar lista de usuarios excluidos
     excluded_users = load_excluded_users()
@@ -815,7 +874,7 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
             log_user_action(
                 log_filename, original_username, normalized_username,
                 fullname, email, 'EXCLUDE', 'EXCLUDED', 'Usuario en lista de excluidos',
-                city, country, description
+                city, country, description, activated=False
             )
             progress_bar.update(1)
             continue
@@ -833,7 +892,7 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
                 if original_username != normalized_username:
                     print(f"   Username original: {original_username}")
             
-            result = create_discourse_user(original_username, mu, dry_run=dry_run, log_filename=log_filename, debug=debug)
+            result = create_discourse_user(original_username, mu, dry_run=dry_run, log_filename=log_filename, debug=debug, activate_users=activate_users)
             if result is True:
                 stats['creados'] += 1
                 # Obtener grupos de Moodle para este usuario (usar username original)
@@ -843,7 +902,7 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
                 # Conflicto de email - actualizar usuario existente
                 existing_username = result['username']
                 print(f"   [UPDATE] Actualizando usuario existente {existing_username} con datos de {original_username}")
-                if update_existing_user_with_conflict(existing_username, mu, dry_run=dry_run, log_filename=log_filename, debug=debug):
+                if update_existing_user_with_conflict(existing_username, mu, dry_run=dry_run, log_filename=log_filename, debug=debug, activate_users=activate_users):
                     stats['actualizados'] += 1
                     # Obtener grupos de Moodle para este usuario (usar username original)
                     moodle_groups = get_moodle_groups_for_user(original_username)
@@ -869,7 +928,7 @@ def main(dry_run=True, filter_username=None, force_recreate=False, batch_size=No
             log_user_action(
                 log_filename, original_username, normalized_username,
                 fullname, email, 'UPDATE', 'EXISTS', 'Usuario existe en Discourse, procesando actualizaciones',
-                city, country, description
+                city, country, description, activated=False
             )
 
         # Construcción del location con conversión de código de país
@@ -975,9 +1034,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Activa modo debug con información detallada"
     )
+    parser.add_argument(
+        "--activate-users",
+        action="store_true",
+        help="Activa y aprueba automáticamente los usuarios creados"
+    )
     args = parser.parse_args()
 
     main(dry_run=not args.apply, filter_username=args.user, force_recreate=args.force_recreate, 
-         batch_size=args.batch_size, offset=args.offset, debug=args.debug)
+         batch_size=args.batch_size, offset=args.offset, debug=args.debug, activate_users=args.activate_users)
 
  

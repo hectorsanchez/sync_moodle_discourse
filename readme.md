@@ -12,6 +12,7 @@ Este script permite mantener actualizados automáticamente los perfiles de usuar
   - Ubicación (`location`, combinando ciudad y país de Moodle)
   - Biografía (`bio_raw`)
   - Email (`email`, requiere confirmación del usuario en Discourse)
+- **Activación automática de usuarios** con parámetro `--activate-users`
 - **Modo dry-run** para revisar cambios antes de aplicarlos
 - **Sincronización selectiva** por usuario específico
 - **Verificación automática** de cambios aplicados
@@ -88,6 +89,7 @@ La variable `ENV` en cada archivo determina el entorno y se incluye en el nombre
 | `--force-recreate` | Fuerza la recreación de usuarios existentes | `False` | `--force-recreate` |
 | `--batch-size N` | Número de usuarios a procesar en esta ejecución | `10` (desde settings.py) | `--batch-size 20` |
 | `--offset N` | Número de usuarios a saltar desde el inicio | `0` | `--offset 50` |
+| `--activate-users` | Activa y aprueba automáticamente los usuarios creados | `False` | `--activate-users` |
 
 ### Comandos básicos
 
@@ -98,11 +100,17 @@ python3 sync_moodle_discourse.py
 # Aplicar cambios reales
 python3 sync_moodle_discourse.py --apply
 
+# Aplicar cambios y activar usuarios automáticamente
+python3 sync_moodle_discourse.py --apply --activate-users
+
 # Sincronizar usuario específico (modo dry-run)
 python3 sync_moodle_discourse.py --user "juan.perez"
 
 # Sincronizar usuario específico y aplicar cambios
 python3 sync_moodle_discourse.py --user "juan.perez" --apply
+
+# Sincronizar usuario específico, aplicar cambios y activar
+python3 sync_moodle_discourse.py --user "juan.perez" --apply --activate-users
 ```
 
 ### Procesamiento por lotes
@@ -111,14 +119,17 @@ python3 sync_moodle_discourse.py --user "juan.perez" --apply
 # Procesar 10 usuarios (valor por defecto)
 python3 sync_moodle_discourse.py --apply
 
-# Procesar 20 usuarios
-python3 sync_moodle_discourse.py --apply --batch-size 20
+# Procesar 20 usuarios con activación automática
+python3 sync_moodle_discourse.py --apply --batch-size 20 --activate-users
 
 # Procesar 5 usuarios saltando los primeros 10
 python3 sync_moodle_discourse.py --apply --batch-size 5 --offset 10
 
-# Procesar 15 usuarios saltando los primeros 30
-python3 sync_moodle_discourse.py --apply --batch-size 15 --offset 30
+# Procesar 15 usuarios saltando los primeros 30 con activación
+python3 sync_moodle_discourse.py --apply --batch-size 15 --offset 30 --activate-users
+
+# Procesar todos los usuarios con activación automática (recomendado para migración masiva)
+python3 sync_moodle_discourse.py --apply --activate-users
 ```
 
 ### Ejemplo de procesamiento secuencial para 700 usuarios
@@ -143,6 +154,7 @@ python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 690
 |------|-------------|---------|
 | **Dry-run** | Muestra diferencias sin aplicar cambios | `python3 sync_moodle_discourse.py` |
 | **Apply** | Aplica cambios reales en Discourse | `python3 sync_moodle_discourse.py --apply` |
+| **Apply + Activación** | Aplica cambios y activa usuarios automáticamente | `python3 sync_moodle_discourse.py --apply --activate-users` |
 | **Usuario específico** | Limita sincronización a un usuario | `python3 sync_moodle_discourse.py --user username` |
 | **Procesamiento por lotes** | Procesa un número específico de usuarios | `python3 sync_moodle_discourse.py --apply --batch-size 20` |
 | **Procesamiento secuencial** | Procesa lotes sin duplicados | `python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 50` |
@@ -157,6 +169,22 @@ python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 690
 4. **Actualización** de campos modificados
 5. **Verificación** de cambios aplicados correctamente
 6. **Logging** detallado de todas las acciones en archivo CSV
+
+### Activación automática de usuarios
+
+Cuando se usa el parámetro `--activate-users`, el script:
+
+1. **Crea el usuario** en Discourse (si no existe)
+2. **Obtiene el ID** del usuario recién creado
+3. **Aprueba el usuario** usando la API de administrador (`/admin/users/{id}/approve`)
+4. **Activa el usuario** usando la API de administrador (`/admin/users/{id}/activate`)
+5. **Verifica la activación** para confirmar que el usuario está listo para usar
+
+**Beneficios:**
+- Los usuarios quedan **listos para usar** inmediatamente
+- No requieren **activación manual** por email
+- Perfecto para **migraciones masivas** de usuarios
+- **Control total** sobre cuándo activar usuarios
 
 ### Normalización de nombres de usuario
 
@@ -179,6 +207,7 @@ Cada ejecución genera un archivo CSV con timestamp que incluye:
 - **Acción realizada** (CREATE, UPDATE, EXCLUDE, ERROR)
 - **Estado** (SUCCESS, ERROR, DRY_RUN, etc.)
 - **Mensaje descriptivo** de la acción
+- **Activación** (YES/NO) - Indica si el usuario fue activado automáticamente
 
 #### Nombres de archivo diferenciados
 
@@ -344,6 +373,18 @@ grep "ERROR" sync_log_production_apply_*.csv
 
 # Ver usuarios excluidos en todos los entornos
 grep "EXCLUDE" sync_log_*.csv
+
+# Ver solo usuarios activados
+grep "activated,YES" sync_log_*.csv
+
+# Contar usuarios activados
+grep "activated,YES" sync_log_*.csv | wc -l
+
+# Ver usuarios creados sin activar
+grep "CREATE,SUCCESS" sync_log_*.csv | grep "activated,NO"
+
+# Ver usuarios activados en desarrollo
+grep "activated,YES" sync_log_development_*.csv
 ```
 
 ## Detalles técnicos
@@ -375,27 +416,27 @@ Este proyecto está bajo la licencia especificada en el archivo `LICENSE`.
 
 ## Ejemplos prácticos
 
-### Ejemplo 1: Procesamiento inicial de 100 usuarios
+### Ejemplo 1: Procesamiento inicial de 100 usuarios con activación
 
 ```bash
-# Lote 1: usuarios 0-9
-python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 0
+# Lote 1: usuarios 0-9 (con activación automática)
+python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 0 --activate-users
 
-# Lote 2: usuarios 10-19
-python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 10
+# Lote 2: usuarios 10-19 (con activación automática)
+python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 10 --activate-users
 
 # ... continuar hasta el lote 10: usuarios 90-99
-python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 90
+python3 sync_moodle_discourse.py --apply --batch-size 10 --offset 90 --activate-users
 ```
 
-### Ejemplo 2: Procesamiento en paralelo
+### Ejemplo 2: Procesamiento en paralelo con activación
 
 ```bash
-# Terminal 1: usuarios 0-49
-python3 sync_moodle_discourse.py --apply --batch-size 50 --offset 0
+# Terminal 1: usuarios 0-49 (con activación automática)
+python3 sync_moodle_discourse.py --apply --batch-size 50 --offset 0 --activate-users
 
-# Terminal 2: usuarios 50-99
-python3 sync_moodle_discourse.py --apply --batch-size 50 --offset 50
+# Terminal 2: usuarios 50-99 (con activación automática)
+python3 sync_moodle_discourse.py --apply --batch-size 50 --offset 50 --activate-users
 ```
 
 ### Ejemplo 3: Análisis de logs
@@ -411,15 +452,38 @@ tail -f sync_log_20250916_143748.csv
 wc -l sync_log_20250916_143748.csv
 ```
 
-### Ejemplo 4: Procesamiento con monitoreo
+### Ejemplo 4: Procesamiento con monitoreo y activación
 
 ```bash
-# Procesar con output detallado
-python3 sync_moodle_discourse.py --apply --batch-size 20 --offset 0 2>&1 | tee procesamiento_lote_1.log
+# Procesar con output detallado y activación automática
+python3 sync_moodle_discourse.py --apply --batch-size 20 --offset 0 --activate-users 2>&1 | tee procesamiento_lote_1.log
 
 # Verificar resultados
 grep "SUCCESS" sync_log_*.csv | wc -l
 grep "ERROR" sync_log_*.csv | wc -l
+grep "ACTIVATE" sync_log_*.csv | wc -l  # Contar activaciones
+```
+
+### Ejemplo 5: Migración masiva de 700 usuarios
+
+```bash
+# Opción 1: Procesamiento secuencial con activación automática
+for i in {0..69}; do
+    offset=$((i * 10))
+    echo "Procesando lote $((i + 1)): usuarios $offset-$((offset + 9))"
+    python3 sync_moodle_discourse.py --apply --batch-size 10 --offset $offset --activate-users
+    sleep 5  # Pausa entre lotes para evitar sobrecarga
+done
+
+# Opción 2: Procesamiento en paralelo (2 terminales)
+# Terminal 1: usuarios 0-349
+python3 sync_moodle_discourse.py --apply --batch-size 350 --offset 0 --activate-users
+
+# Terminal 2: usuarios 350-699
+python3 sync_moodle_discourse.py --apply --batch-size 350 --offset 350 --activate-users
+
+# Opción 3: Procesamiento completo de una vez (solo si el servidor puede manejarlo)
+python3 sync_moodle_discourse.py --apply --activate-users
 ```
 
 ---

@@ -133,8 +133,9 @@ def normalize_username(username):
     # Truncar a máximo 20 caracteres (límite de Discourse)
     if len(normalized) > 20:
         normalized = normalized[:20]
-        # Asegurar que no termine en guión bajo después del truncado
-        normalized = normalized.rstrip('_')
+        # Asegurar que no termine en guión bajo o punto después del truncado
+        # Discourse no permite que los usernames terminen con punto
+        normalized = normalized.rstrip('_.')
         # Si queda vacío después del truncado, usar 'user'
         if not normalized:
             normalized = 'user'
